@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azurite-depl
+  namespace: az-mocks
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "azurite"
+    spec:
+      containers:
+      - name: azurite-service
+        image: mcr.microsoft.com/azure-storage/azurite
+        command:
+          - azurite
+          - --blobHost 
+          - 0.0.0.0
+          - --tableHost 
+          - 0.0.0.0
+          - --queueHost 
+          - 0.0.0.0
+          - -d
+          - /var/log/azurite.log
+        ports:
+          - name: blob
+            containerPort: 10000
+          - name: queue
+            containerPort: 10001
+          - name: table
+            containerPort: 10002
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 200Mi
