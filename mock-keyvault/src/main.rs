@@ -20,7 +20,7 @@ async fn main() -> Result<(), std::io::Error> {
     let root = Route::new(); 
 
     // TODO: Checks the env and configure the routes appropriately
-    let secrets_handler = secrets::Handler{};
+    let secrets_handler = secrets::Handler::new(true);
     let root = secrets_handler.install(root);
 
     let authorize_handler = authorize::Handler{};

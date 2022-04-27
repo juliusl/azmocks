@@ -5,6 +5,7 @@ use poem::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::instrument;
+use logos::Logos;
 
 use super::UnauthorizedError;
 
@@ -15,6 +16,12 @@ pub struct Handler {
 }
 
 impl Handler {
+    pub fn new(interpret_secret_names: bool) -> Self {
+        Self {
+            enable_secret_interpreter: interpret_secret_names
+        }
+    }
+
     /// install adds routes for secret handling to the route object
     pub fn install(&self, route: Route) -> Route {
         route
@@ -26,7 +33,11 @@ impl Handler {
 
     /// returns the route method to get secrets
     fn get(&self) -> RouteMethod {
-        get(get_secret_test)
+        if self.enable_secret_interpreter {
+            get(get_secret_and_interpret)
+        } else {
+            get(get_secret_test)
+        }
     }
 
     /// returns the route method to put secrets
@@ -39,16 +50,21 @@ impl Handler {
 fn get_secret_and_interpret(Path(secretname): Path<String>, Path(version): Path<String>) -> Json<Secret> {
     // Generally the secret name will include the type of secret
     // There a couple of common patterns here
+    let secret_value = MockServiceSecret::interpret(&secretname);
 
-    let is_storage = secretname.contains("StorageConnectionString");
-    if is_storage { 
-        let is_blob_only = secretname.contains("BlobStorageConnectionString");
-        let is_queue_only = secretname.contains("QueueStorageConnectionString");
-        let is_table_only = secretname.contains("TableStorageConnectionString");
-        
-        secretname.strip_suffix("StorageConnectionString");
-    }
-    todo!()
+    // TODO -- generate an id
+    Json(Secret {
+        id: Some("test-id".to_string()),
+        value: secret_value.to_string(),
+        content_type: Some("text/string".to_string()),
+        attributes: Some(SecretAttributes {
+            id: "".to_string(),
+            enabled: true,
+            exp: -1,
+            nbf: -1,
+        }),
+        tags: None,
+    })
 }
 
 
@@ -126,5 +142,67 @@ impl<'a> FromRequest<'a> for Secret {
             }
             _ => Err(poem::Error::from(UnauthorizedError {})),
         }
+    }
+}
+
+#[derive(Logos, Debug, PartialEq)]
+enum MockServiceSecret {
+    // Tokens can be literal strings, of any length.
+    #[token("StorageConnectionString")]
+    StorageConnectionString,
+
+    #[token("Blob")]
+    Blob,
+
+    #[token("Queue")]
+    Queue,
+
+    #[token("Table")]
+    Table,
+
+    // Logos requires one token variant to handle errors,
+    // it can be named anything you wish.
+    #[error]
+    // We can also use this variant to define whitespace,
+    // or any other matches we wish to skip.
+    #[regex(r"[ \t\n\f]+", logos::skip)]
+    Error,
+}
+
+impl MockServiceSecret {
+    /// interpret secret_name pattern into the corresponding mock secret value
+    /// generally the secret value is a connnection string with all of the endpoint parameters
+    fn interpret(secret_name: &str) -> String {
+        let mut lexer = MockServiceSecret::lexer(secret_name);
+
+        let mut is_blob = false;
+        let mut is_queue = false;
+        let mut is_table = false;
+        let mut is_storage_connection_string = false;
+    
+        // parse the secret name
+        loop {
+            match lexer.next() {
+                Some(MockServiceSecret::Blob) => is_blob = true,
+                Some(MockServiceSecret::Queue) => is_queue = true,
+                Some(MockServiceSecret::Table) => is_table = true,
+                Some(MockServiceSecret::StorageConnectionString) => is_storage_connection_string = true,
+                Some(MockServiceSecret::Error) => break,
+                None => break,
+            }
+        }
+    
+        // interpret into some secret value
+        let secret_value = match is_storage_connection_string {
+            true => match (is_blob, is_queue, is_table) {
+                (true, false, false) => "UseDevelopmentStorage=true;BlobEndpoint=http://azurite-blob.azmocks.cluster.local/devstoreaccount1;",
+                (false, true, false) => "UseDevelopmentStorage=true;QueueEndpoint=http://azurite-queue.azmocks.cluster.local/devstoreaccount1;",
+                (false, false, true) => "UseDevelopmentStorage=true;TableEndpoint=http://azurite-table.azmocks.cluster.local/devstoreaccount1;",
+                _ => "UseDevelopmentStorage=true;BlobEndpoint=http://azurite-blob.azmocks.cluster.local/devstoreaccount1;QueueEndpoint=http://azurite-queue.azmocks.cluster.local/devstoreaccount1;TableEndpoint=http://azurite-table.azmocks.cluster.local/devstoreaccount1;",
+            },
+            false => ""
+        };
+
+        secret_value.to_string()
     }
 }
