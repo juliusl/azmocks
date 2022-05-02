@@ -151,6 +151,17 @@ enum MockServiceSecret {
     #[token("StorageConnectionString")]
     StorageConnectionString,
 
+    // Logos requires one token variant to handle errors,
+    // it can be named anything you wish.
+    #[error]
+    // We can also use this variant to define whitespace,
+    // or any other matches we wish to skip.
+    #[regex(r"[ \t\n\f]+", logos::skip)]
+    Error,
+}
+
+#[derive(Logos, Debug, PartialEq)]
+enum MockStorageService {
     #[token("Blob")]
     Blob,
 
@@ -159,7 +170,6 @@ enum MockServiceSecret {
 
     #[token("Table")]
     Table,
-
     // Logos requires one token variant to handle errors,
     // it can be named anything you wish.
     #[error]
@@ -183,10 +193,21 @@ impl MockServiceSecret {
         // parse the secret name
         loop {
             match lexer.next() {
-                Some(MockServiceSecret::Blob) => is_blob = true,
-                Some(MockServiceSecret::Queue) => is_queue = true,
-                Some(MockServiceSecret::Table) => is_table = true,
-                Some(MockServiceSecret::StorageConnectionString) => is_storage_connection_string = true,
+                Some(MockServiceSecret::StorageConnectionString) => {
+                    is_storage_connection_string = true;
+                    let mut storage_lexer = MockStorageService::lexer(lexer.source());
+
+                    loop {
+                        match storage_lexer.next() {
+                            Some(MockStorageService::Blob) => is_blob = true,
+                            Some(MockStorageService::Queue) => is_queue = true,
+                            Some(MockStorageService::Table) => is_table = true,
+                            Some(MockStorageService::Error) => break,
+                            None => break,
+                        }
+                    }
+                    break;
+                },
                 Some(MockServiceSecret::Error) => break,
                 None => break,
             }
